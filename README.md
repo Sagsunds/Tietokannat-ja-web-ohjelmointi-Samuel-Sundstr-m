@@ -1,2 +1,2 @@
-# Tietokannat-ja-web-ohjelmointi-Samuel-Sundstr-m
-Ajattelin tehdä keskustelusovelluksen. Siinä näkyy keskustelualueita, joista jokaisella on tietty aihe tms. Alueilla on keskusteluketjuja, jotka muodostuvat viesteistä. Jokainen käyttäjä on peruskäyttäjä tai ylläpitäjä. Jotain omia toteutuksia vielä tähän jne.
+# Chat Room-Samuel-Sundstrom
+Sain erittäin alkeellisen version valmiiksi. Käytän Windowsia, joten kurssimateriaalin kanssa on ollut hieman ongelmia. Postgresql:n kanssa on ollut myös säätöä, joten  sovelluksen tietokantaa en ole saanut toimimaan, mutta lopullisessa versioissa se on käytössä. Sovellus ei ole myöskään tuotannossa, joten koodi löytyy Issues-osiosta. Tiedosto app.py käyttää flask_socketio:ta, mutta se tulee todennäköisesti muuttumaan. Lisäksi index.html käyttää Javaa (ohessa kuva, sillä koodin kirjaaminen ei onnistunut kunnolla).  
