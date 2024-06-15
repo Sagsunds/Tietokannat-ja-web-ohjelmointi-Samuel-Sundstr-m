@@ -1,5 +1,6 @@
 # Chat Room-Samuel-Sundstrom
-Sain erittäin alkeellisen version valmiiksi. Käytän Windowsia, joten kurssimateriaalin kanssa on ollut hieman ongelmia. 
-PostgreSQL:n kanssa on ollut myös säätöä, joten  sovelluksen tietokantaa en ole saanut toimimaan, mutta lopullisessa versioissa se on käytössä. 
-Sovellus ei ole myöskään tuotannossa. Tiedosto app.py käyttää flask_socketio:ta, mutta se tulee todennäköisesti muuttumaan. 
-Lisäksi index.html käyttää Javaa (ohessa kuva, sillä koodin kirjaaminen ei onnistunut kunnolla). Kurssimateriaalin mukaisesti käynnistys. 
+Sovellus on lähes valmis ja myös tuotannossa. Sivustolla voi luoda käyttäjän ja kirjautua sisään. Tämän jälkeen käyttäjä voi siirtyä joko julkiselle (Public Forum) tai yksityiselle (Private Forum) alustalle. Alustoille voi luoda uusia keskusteluja tai kirjoittaa vanhaan keskusteluun. Omia keskusteluja ja viestejä voi muokata ja poistaa. Halutessa oman käyttäjän voi myös poistaa ja tehdä uuden tilalle. Uusi käyttäjä on lähtökohtaisesti aina peruskäyttäjä.
+
+Adminoikeudet (sähköposti: admin@example.com ja salasana: adminpassword) 
+Private Forum Password: Salasana5432
+osoite: https://b1n2.fly.dev
