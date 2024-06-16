@@ -5,4 +5,5 @@ Adminoikeudet (sähköposti: admin@example.com ja salasana: adminpassword)
 
 Private Forum Password: Salasana5432
 
-osoite: https://b1n2.fly.dev
+osoite: https://b1n3.fly.dev
+
