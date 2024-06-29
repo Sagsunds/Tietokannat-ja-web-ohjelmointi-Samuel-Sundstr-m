@@ -1,0 +1,18 @@
+{% extends 'layouts.html' %}
+
+{% block content %}
+    <div class="container mt-4">
+        <h2>{{ private_area.name }}</h2>
+        <p>{{ private_area.description }}</p>
+        <a href="{{ url_for('new_private_thread', private_area_id=private_area.id) }}" class="btn btn-success mb-3">New Thread</a>
+        {% for thread in threads %}
+            <div class="card mb-2">
+                <div class="card-body">
+                    <h5 class="card-title">{{ thread.title }}</h5>
+                    <a href="{{ url_for('private_thread', private_thread_id=thread.id) }}" class="btn btn-primary">View Thread</a>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% endblock %}
+

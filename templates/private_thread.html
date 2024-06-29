@@ -1,0 +1,40 @@
+{% extends 'layouts.html' %}
+
+{% block content %}
+    <div class="container mt-2">
+        <h2>{{ thread.title }}</h2>
+        <a href="{{ url_for('edit_private_thread', private_thread_id=thread.id) }}" class="btn btn-warning mb-3">Edit Thread</a>
+        <form action="{{ url_for('delete_private_thread', private_thread_id=thread.id) }}" method="POST" class="d-inline">
+            <button type="submit" class="btn btn-danger mb-3">Delete Thread</button>
+        </form>
+        <form method="POST">
+            {{ form.hidden_tag() }}
+            <div class="form-group mb-2">
+                {{ form.content.label(class="form-control-label") }}
+                {{ form.content(class="form-control") }}
+            </div>
+            <div class="form-group mb-4">
+                {{ form.submit(class="btn btn-primary") }}
+            </div>
+        </form>
+        {% for post in posts %}
+            <div class="card mb-2">
+                <div class="card-body">
+                    <p>{{ post.content }}</p>
+                    {% if post.username %}
+                        <p>Posted by: {{ post.username }}</p>
+                    {% else %}
+                        <p>Posted by: Anonymous</p>
+                    {% endif %}
+                    <small>{{ post.timestamp.strftime("%d/%m/%Y, %H:%M:%S") }}</small>
+                    {% if current_user.is_authenticated and post.user_id == current_user.id or current_user.is_admin%}
+                        <a href="{{ url_for('edit_private_post', private_post_id=post.id) }}" class="btn btn-warning btn-sm">Edit</a>
+                        <form action="{{ url_for('delete_private_post', private_post_id=post.id) }}" method="POST" class="d-inline">
+                            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% endblock %}
