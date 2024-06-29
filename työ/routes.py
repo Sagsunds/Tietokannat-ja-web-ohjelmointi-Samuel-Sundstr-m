@@ -1,8 +1,13 @@
-from työ import app, db
+from datetime import datetime
+import os
+import secrets
+from PIL import Image
+from työ import app, db, bcrypt
 from flask import render_template, url_for, flash, redirect, request, session
-from työ.forms import RegistrationForm, LoginForm, ThreadForm, PostForm, PasswordForm
-from työ.models import User, Area, Thread, Post, PrivateArea, PrivatePost, PrivateThread 
+from työ.forms import RegistrationForm, LoginForm, ThreadForm, PostForm, PasswordForm, GalleryForm
+from työ.models import User
 from flask_login import login_user, current_user, logout_user, login_required, LoginManager
+from sqlalchemy import text
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -15,8 +20,11 @@ def load_user(user_id):
 @app.route('/')
 @app.route('/home')
 def home():
-    areas = Area.query.filter_by(is_secret=False).all()
-    private_areas = PrivateArea.query.filter_by(is_secret=False).all()
+    sql_area=text("SELECT * FROM area WHERE is_secret = false")
+    sql_private_area=text("SELECT * FROM private_area WHERE is_secret = false")
+    areas = db.session.execute(sql_area).fetchall()
+    private_areas = db.session.execute(sql_private_area).fetchall()
+    
     return render_template('home.html', areas=areas, private_areas=private_areas)
 
 @app.route("/register", methods=['GET', 'POST'])
@@ -26,17 +34,28 @@ def register():
         return redirect(url_for('home'))
     form = RegistrationForm()
     if form.validate_on_submit():
-        existing_user = User.query.filter_by(username=form.username.data).first()
+        username = form.username.data
+        email = form.email.data
+        password = bcrypt.generate_password_hash(form.password.data).decode("utf-8")
+        sql = text("SELECT id FROM \"user\" WHERE username = :username")
+        existing_user = db.session.execute(sql, {'username': username,}).fetchone() 
         if existing_user:
             flash('Username is already taken. Please choose a different one.', 'danger')
+            return redirect(url_for('register'))   
+        sql = text("SELECT id FROM \"user\" WHERE email = :email")
+        existing_email = db.session.execute(sql, {'email': email,}).fetchone()
+        if existing_email:
+            flash('Email is already in use. Please enter a different one.', 'danger')
             return redirect(url_for('register'))
-        
-        user = User(username=form.username.data, email=form.email.data, password=form.password.data)
-        db.session.add(user)
+        sql3 = text("INSERT INTO \"user\" (username, email, password, is_admin) VALUES (:username, :email, :password, :is_admin)")
+        db.session.execute(sql3, {'username': username, 'email': email, 'password': password, 'is_admin': False})
         db.session.commit()
         flash('Your account has been created! You are now able to log in', 'success')
         return redirect(url_for('login'))
+    
     return render_template('register.html', title='Register', form=form)
+
+
 
 @app.route("/login", methods=['GET', 'POST'])
 def login():
@@ -45,75 +64,95 @@ def login():
         return redirect(url_for('home'))
     form = LoginForm()
     if form.validate_on_submit():
-        user = User.query.filter_by(email=form.email.data).first()
-        if user and form.email.data == user.email and form.password.data == user.password:
+        sql = text("SELECT id, email, password FROM \"user\" WHERE email = :email")
+        result = db.session.execute(sql, {'email': form.email.data}).fetchone()
+        if result and bcrypt.check_password_hash(result.password, form.password.data):
+            user = User(id=result.id, email=result.email)
             login_user(user)
             flash('You have been logged in!', 'success')
             return redirect(url_for('account'))
         else:
             flash('Login Unsuccessful. Please check email and password', 'danger')
+
     return render_template('login.html', title='Login', form=form)
+
 
 @app.route('/logout', methods=['POST'])
 @login_required
 def logout():
     logout_user()
     flash('You have been logged out.', 'success')
+    
     return redirect(url_for('home'))
 
 @app.route('/delete_account', methods=['POST'])
 @login_required
 def delete_account():
-    user = current_user
-    related_threads = Thread.query.filter_by(user_id=user.id).all()
-    try:
-        for thread in related_threads:
-            thread.user_id = None
-            db.session.add(thread)
-        db.session.delete(user)
-        db.session.commit()       
-        flash('Your account has been deleted.', 'success')
-        return redirect(url_for('home'))
-    except Exception:
-        db.session.rollback()
-        flash('An error occurred while deleting your account.', 'error')
-        return redirect(url_for('home'))
+    user_id = current_user.id
+    sql_gallery = text("UPDATE gallery SET user_id = NULL WHERE user_id = :user_id")
+    db.session.execute(sql_gallery, {'user_id': user_id})
+    sql_threads = text("UPDATE thread SET user_id = NULL WHERE user_id = :user_id")
+    db.session.execute(sql_threads, {'user_id': user_id})
+    sql_user = text("DELETE FROM \"user\" WHERE id = :user_id")
+    db.session.execute(sql_user, {'user_id': user_id})
+    db.session.commit()
+    flash('Your account has been deleted.', 'success')
+    
+    return redirect(url_for('home'))
 
 
 @app.route("/area/<int:area_id>")
+@login_required
 def area(area_id):
-    area = Area.query.get_or_404(area_id)
-    if area.is_secret and current_user not in area.authorized_users:
-        flash('You do not have access to this area.', 'danger')
-        return redirect(url_for('home'))
-    threads = Thread.query.filter_by(area_id=area_id).all()
+    sql_area = text("SELECT * FROM area WHERE id = :id")
+    sql_thread = text("SELECT * FROM thread WHERE area_id = :area_id")
+    area = db.session.execute(sql_area, {'id': area_id}).fetchone()
+    threads = db.session.execute(sql_thread, {'area_id': area_id}).fetchall()
+    
     return render_template('area.html', area=area, threads=threads)
 
 @app.route("/thread/new/<int:area_id>", methods=['GET', 'POST'])
-@login_required
 def new_thread(area_id):
     form = ThreadForm()
     if form.validate_on_submit():
-        thread = Thread(title=form.title.data, area_id=area_id, user_id=current_user.id)
-        post = Post(content=form.content.data, thread=thread, user_id=current_user.id)
-        db.session.add(thread)
-        db.session.add(post)
+        title = form.title.data
+        content = form.content.data
+        user_id = current_user.id
+        sql_insert_thread = text("INSERT INTO thread (title, area_id, user_id) VALUES (:title, :area_id, :user_id)")
+        db.session.execute(sql_insert_thread, {'title': title, 'area_id': area_id, 'user_id': user_id})
+        sql_thread_id = text("SELECT id FROM thread WHERE title = :title AND area_id = :area_id AND user_id = :user_id ORDER BY id DESC LIMIT 1")
+        thread_result = db.session.execute(sql_thread_id, {'title': title, 'area_id': area_id, 'user_id': user_id}).fetchone()
+        thread_id = thread_result[0]
+        sql_insert_post = text("INSERT INTO post (content, thread_id, user_id, timestamp) VALUES (:content, :thread_id, :user_id, CURRENT_TIMESTAMP)")
+        db.session.execute(sql_insert_post, {'content': content, 'thread_id': thread_id, 'user_id': user_id})
         db.session.commit()
         flash('New thread created!', 'success')
         return redirect(url_for('area', area_id=area_id))
+    
     return render_template('create_thread.html', title='New Thread', form=form)
 
 @app.route("/thread/<int:thread_id>", methods=['GET', 'POST'])
 def thread(thread_id):
-    thread = Thread.query.get_or_404(thread_id)
-    posts = Post.query.filter_by(thread_id=thread_id).all()
+    sql_thread= text("SELECT * FROM thread WHERE id = :thread_id")
+    thread_result = db.session.execute(sql_thread, {"thread_id": thread_id})
+    thread = thread_result.fetchone()
+    if not thread:
+        flash('Thread not found!', 'error')
+        return redirect(url_for('index'))
+    sql_user=text("SELECT p.*, u.username as username FROM post p LEFT JOIN \"user\" u ON p.user_id = u.id WHERE p.thread_id = :thread_id")
+    posts_result = db.session.execute(sql_user,{"thread_id": thread_id})
+    posts = posts_result.fetchall()
     form = PostForm()
     if form.validate_on_submit():
-        post = Post(content=form.content.data, thread_id=thread_id, user_id=current_user.id)
-        db.session.add(post)
+        content = form.content.data
+        user_id = current_user.id if current_user.is_authenticated else None
+        timestamp = datetime.utcnow() 
+        sql_post=text("INSERT INTO post (content, thread_id, user_id, timestamp) VALUES (:content, :thread_id, :user_id, :timestamp)")
+        db.session.execute(sql_post,{"content": content, "thread_id": thread_id, "user_id": user_id, "timestamp": timestamp})
         db.session.commit()
         flash('Your post has been added!', 'success')
         return redirect(url_for('thread', thread_id=thread_id))
+    
     return render_template('thread.html', thread=thread, posts=posts, form=form)
 
 @app.route("/account")
@@ -121,143 +160,202 @@ def thread(thread_id):
 def account():
     return render_template('account.html')
 
-@app.route("/about")
-def about():
-    return render_template('about.html')
+def save_image(form_picture):
+    random_hex = secrets.token_hex(8)
+    _, f_ext = os.path.splitext(form_picture.filename)
+    picture_fn = random_hex + f_ext
+    picture_path = os.path.join(app.root_path, 'static/new_pics', picture_fn)
+
+    output_size = (125, 125)
+    i = Image.open(form_picture)
+    i.thumbnail(output_size)
+    i.save(picture_path)
+
+    return picture_fn
+
+
+@app.route("/gallery", methods=['GET', 'POST'])
+@login_required
+def gallery():
+    form = GalleryForm()
+    if form.validate_on_submit():
+        if form.picture.data:
+            image_file = save_image(form.picture.data)
+            sql = text("INSERT INTO gallery (image_file, user_id) VALUES (:image_file, :user_id)")
+            db.session.execute(sql, {'image_file': image_file, 'user_id': current_user.id})
+            db.session.commit()
+            return redirect(url_for('gallery'))
+        else:
+            flash('Please select a file', 'danger')
+    sql = text("SELECT image_file FROM gallery WHERE user_id = :user_id")
+    results = db.session.execute(sql, {'user_id': current_user.id})
+    image_urls = [url_for('static', filename='new_pics/' + result.image_file) for result in results]
+
+    return render_template('gallery.html', form=form, legend="Gallery pictures", image_urls=image_urls)
+
 
 @app.route("/thread/<int:thread_id>/edit", methods=['GET', 'POST'])
-@login_required
 def edit_thread(thread_id):
-    thread = Thread.query.get_or_404(thread_id)
-    if thread.user_id != current_user.id:
+    sql_edit = text("SELECT * FROM thread WHERE id = :id")
+    result = db.session.execute(sql_edit, {'id': thread_id})
+    thread = result.fetchone()
+    if thread.user_id != current_user.id and not current_user.is_admin:
         flash('You do not have permission to edit this thread.', 'danger')
         return redirect(url_for('thread', thread_id=thread_id))
     form = ThreadForm()
     if form.validate_on_submit() or request.method == 'POST':
-        thread.title = form.title.data
+        sql_update = text("UPDATE thread SET title = :title WHERE id = :id")
+        db.session.execute(sql_update, {'title': form.title.data, 'id': thread_id})
         db.session.commit()
         flash('Thread title has been updated!', 'success')
         return redirect(url_for('thread', thread_id=thread_id))
     elif request.method == 'GET':
         form.title.data = thread.title
+    
     return render_template('edit_thread.html', title='Edit Thread', form=form)
 
 @app.route("/post/<int:post_id>/edit", methods=['GET', 'POST'])
-@login_required
 def edit_post(post_id):
-    post = Post.query.get_or_404(post_id)
-    if post.user_id != current_user.id:
+    sql_edit = text("SELECT * FROM post WHERE id = :id")
+    result = db.session.execute(sql_edit, {'id': post_id})
+    post = result.fetchone()
+    if post.user_id != current_user.id and not current_user.is_admin:
         flash('You do not have permission to edit this post.', 'danger')
         return redirect(url_for('thread', thread_id=post.thread_id))
     form = PostForm()
     if form.validate_on_submit():
-        post.content = form.content.data
+        sql_update = text("UPDATE post SET content = :content WHERE id = :id")
+        db.session.execute(sql_update, {'content': form.content.data, 'id': post_id})
         db.session.commit()
         flash('Post has been updated!', 'success')
         return redirect(url_for('thread', thread_id=post.thread_id))
     elif request.method == 'GET':
         form.content.data = post.content
+    
     return render_template('edit_post.html', title='Edit Post', form=form)
 
 @app.route("/thread/<int:thread_id>/delete", methods=['POST'])
-@login_required
 def delete_thread(thread_id):
-    thread = Thread.query.get_or_404(thread_id)
-    if thread.user_id != current_user.id:
+    sql_select_thread = text("SELECT * FROM thread WHERE id = :id")
+    result_thread = db.session.execute(sql_select_thread, {'id': thread_id})
+    thread = result_thread.fetchone()
+    if thread.user_id != current_user.id and not current_user.is_admin:
         flash('You do not have permission to delete this thread.', 'danger')
         return redirect(url_for('thread', thread_id=thread_id))
-    db.session.delete(thread)
+    sql_delete_posts = text("DELETE FROM post WHERE thread_id = :thread_id")
+    db.session.execute(sql_delete_posts, {'thread_id': thread_id})
+    sql_delete_thread = text("DELETE FROM thread WHERE id = :id")
+    db.session.execute(sql_delete_thread, {'id': thread_id})
     db.session.commit()
     flash('Thread has been deleted!', 'success')
+    
     return redirect(url_for('area', area_id=thread.area_id))
 
 @app.route("/post/<int:post_id>/delete", methods=['POST'])
-@login_required
 def delete_post(post_id):
-    post = Post.query.get_or_404(post_id)
-    if post.user_id != current_user.id:
+    sql_edit = text("SELECT * FROM post WHERE id = :id")
+    result = db.session.execute(sql_edit, {'id': post_id})
+    post = result.fetchone()
+    if post.user_id != current_user.id and not current_user.is_admin:
         flash('You do not have permission to delete this post.', 'danger')
         return redirect(url_for('thread', thread_id=post.thread_id))
-    db.session.delete(post)
+    sql_delete_post = text("DELETE FROM post WHERE id = :id")
+    db.session.execute(sql_delete_post, {'id': post_id})
     db.session.commit()
     flash('Post has been deleted!', 'success')
+    
     return redirect(url_for('thread', thread_id=post.thread_id))
 
 @app.route("/password", methods=['GET', 'POST'])
+@login_required
 def password():
     form = PasswordForm()
     if session.get('has_access'):
-        area = PrivateArea.query.first()
+        sql_area = text("SELECT * FROM private_area LIMIT 1")
+        area = db.session.execute(sql_area).fetchone()
         flash('Welcome back!', 'success')
         return redirect(url_for('private_area', private_area_id=area.id))
-    if current_user.is_authenticated and current_user.is_admin:
-        area = PrivateArea.query.first() 
+    if current_user.is_admin:
+        sql_area = text("SELECT * FROM private_area LIMIT 1")
+        area = db.session.execute(sql_area).fetchone() 
         flash('You may enter!', 'success')
         return redirect(url_for('private_area', private_area_id=area.id))
     flash("Please enter the password.", "info")
     if form.validate_on_submit():
-        area = PrivateArea.query.filter_by(password=form.password.data).first()
+        sql_area = text("SELECT * FROM private_area WHERE password = :password LIMIT 1")
+        area = db.session.execute(sql_area, {'password': form.password.data}).fetchone()
         if area and form.password.data == area.password:
             session['has_access'] = True
             flash('You have passed the test!', 'success')
             return redirect(url_for('private_area', private_area_id=area.id))
         else:
             flash('Login Unsuccessful. Please check password', 'danger') 
+    
     return render_template('password.html', title='Password', form=form)
-
 
 @app.route("/private_area/<int:private_area_id>")
 @login_required
 def private_area(private_area_id):
-    area = PrivateArea.query.get_or_404(private_area_id)
-    if area.is_secret and current_user not in area.authorized_users:
-        flash('You do not have access to this area.', 'danger')
-        return redirect(url_for('home'))
-    threads = PrivateThread.query.filter_by(area_id=private_area_id).all()
+    sql_area = text("SELECT * FROM private_area WHERE id = :id")
+    area = db.session.execute(sql_area, {'id': private_area_id}).fetchone()    
+    sql_threads = text("SELECT * FROM private_thread WHERE area_id = :area_id")
+    threads = db.session.execute(sql_threads, {'area_id': private_area_id}).fetchall()
+    
     return render_template('private_area.html', private_area=area, threads=threads)
 
-
 @app.route("/private_thread/new/<int:private_area_id>", methods=['GET', 'POST'])
-@login_required
 def new_private_thread(private_area_id):
     form = ThreadForm()
     if form.validate_on_submit():
-        thread = PrivateThread(title=form.title.data, area_id=private_area_id, user_id=current_user.id)
-        db.session.add(thread)
-        db.session.commit() 
-        post = PrivatePost(content=form.content.data, private_thread_id=thread.id, user_id=current_user.id, private_area_id=private_area_id)
-        db.session.add(post)
+        title = form.title.data
+        content = form.content.data
+        user_id = current_user.id
+        sql_insert_thread = text("INSERT INTO private_thread (title, area_id, user_id) VALUES (:title, :area_id, :user_id)")
+        db.session.execute(sql_insert_thread, {'title': title, 'area_id': private_area_id, 'user_id': user_id})
+        sql_thread_id = text("SELECT id FROM private_thread WHERE title = :title AND area_id = :area_id AND user_id = :user_id ORDER BY id DESC LIMIT 1")
+        thread_result = db.session.execute(sql_thread_id, {'title': title, 'area_id': private_area_id, 'user_id': user_id}).fetchone()
+        thread_id = thread_result[0]
+        sql_insert_post = text("INSERT INTO private_post (content, private_thread_id, user_id, timestamp) VALUES (:content, :private_thread_id, :user_id, CURRENT_TIMESTAMP)")
+        db.session.execute(sql_insert_post, {'content': content, 'private_thread_id': thread_id, 'user_id': user_id})
         db.session.commit()
         flash('New thread created!', 'success')
         return redirect(url_for('private_area', private_area_id=private_area_id))
+    
     return render_template('create_private_thread.html', title='New Thread', form=form)
 
-
 @app.route("/private_thread/<int:private_thread_id>", methods=['GET', 'POST'])
-@login_required
 def private_thread(private_thread_id):
-    thread = PrivateThread.query.get_or_404(private_thread_id)
-    posts = PrivatePost.query.filter_by(private_thread_id=private_thread_id).all()
+    sql_thread = text("SELECT * FROM private_thread WHERE id = :private_thread_id")
+    thread_result = db.session.execute(sql_thread, {"private_thread_id": private_thread_id})
+    thread = thread_result.fetchone()
+    sql_posts = text("SELECT p.*, u.username as username FROM private_post p LEFT JOIN \"user\" u ON p.user_id = u.id WHERE p.private_thread_id = :private_thread_id")
+    posts_result = db.session.execute(sql_posts, {"private_thread_id": private_thread_id})
+    posts = posts_result.fetchall()
     form = PostForm()
     if form.validate_on_submit():
-        post = PrivatePost(content=form.content.data, private_thread_id=private_thread_id, user_id=current_user.id)
-        db.session.add(post)
+        content = form.content.data
+        user_id = current_user.id
+        timestamp = datetime.utcnow()
+        sql_post = text("INSERT INTO private_post (content, private_thread_id, user_id, timestamp) VALUES (:content, :private_thread_id, :user_id, :timestamp)")
+        db.session.execute(sql_post, {"content": content, "private_thread_id": private_thread_id, "user_id": user_id, "timestamp": timestamp})
         db.session.commit()
         flash('Your post has been added!', 'success')
         return redirect(url_for('private_thread', private_thread_id=private_thread_id))
+
     return render_template('private_thread.html', thread=thread, posts=posts, form=form)
 
 @app.route("/private_thread/<int:private_thread_id>/edit", methods=['GET', 'POST'])
-@login_required
 def edit_private_thread(private_thread_id):
-    thread = PrivateThread.query.get_or_404(private_thread_id)
+    sql_edit = text("SELECT * FROM private_thread WHERE id = :id")
+    result = db.session.execute(sql_edit, {'id': private_thread_id})
+    thread = result.fetchone()
     if thread.user_id != current_user.id and not current_user.is_admin:
         flash('You do not have permission to edit this thread.', 'danger')
         return redirect(url_for('private_thread', private_thread_id=private_thread_id))
-    
     form = ThreadForm()
     if form.validate_on_submit() or request.method == 'POST':
-        thread.title = form.title.data
+        sql_update = text("UPDATE private_thread SET title = :title WHERE id = :id")
+        db.session.execute(sql_update, {'title': form.title.data, 'id': private_thread_id})
         db.session.commit()
         flash('Thread title has been updated!', 'success')
         return redirect(url_for('private_thread', private_thread_id=private_thread_id))
@@ -268,46 +366,53 @@ def edit_private_thread(private_thread_id):
 
 
 @app.route("/private_post/<int:private_post_id>/edit", methods=['GET', 'POST'])
-@login_required
 def edit_private_post(private_post_id):
-    post = PrivatePost.query.get_or_404(private_post_id)
+    sql_edit = text("SELECT * FROM private_post WHERE id = :id")
+    result = db.session.execute(sql_edit, {'id': private_post_id})
+    post = result.fetchone()
     if post.user_id != current_user.id and not current_user.is_admin:
         flash('You do not have permission to edit this post.', 'danger')
         return redirect(url_for('private_thread', private_thread_id=post.private_thread_id))
-    
     form = PostForm()
     if form.validate_on_submit():
-        post.content = form.content.data
+        sql_update = text("UPDATE private_post SET content = :content WHERE id = :id")
+        db.session.execute(sql_update, {'content': form.content.data, 'id': private_post_id})
         db.session.commit()
         flash('Post has been updated!', 'success')
         return redirect(url_for('private_thread', private_thread_id=post.private_thread_id))
     elif request.method == 'GET':
         form.content.data = post.content
-    
-    return render_template('edit_private_post.html', title='Edit Post', form=form, private_post_id=private_post_id)
 
+    return render_template('edit_post.html', title='Edit Post', form=form)
 
 @app.route("/private_thread/<int:private_thread_id>/delete", methods=['POST'])
-@login_required
 def delete_private_thread(private_thread_id):
-    thread = PrivateThread.query.get_or_404(private_thread_id)
-    if thread.user_id != current_user.id:
+    sql_select_thread = text("SELECT * FROM private_thread WHERE id = :id")
+    result_thread = db.session.execute(sql_select_thread, {'id': private_thread_id})
+    thread = result_thread.fetchone()
+    if thread.user_id != current_user.id and not current_user.is_admin:
         flash('You do not have permission to delete this thread.', 'danger')
         return redirect(url_for('private_thread', private_thread_id=private_thread_id))
-    db.session.delete(thread)
+    sql_delete_posts = text("DELETE FROM private_post WHERE private_thread_id = :thread_id")
+    db.session.execute(sql_delete_posts, {'thread_id': private_thread_id})
+    sql_delete_thread = text("DELETE FROM private_thread WHERE id = :id")
+    db.session.execute(sql_delete_thread, {'id': private_thread_id})
     db.session.commit()
     flash('Thread has been deleted!', 'success')
+    
     return redirect(url_for('private_area', private_area_id=thread.area_id))
 
-
 @app.route("/private_post/<int:private_post_id>/delete", methods=['POST'])
-@login_required
 def delete_private_post(private_post_id):
-    post = PrivatePost.query.get_or_404(private_post_id)
-    if post.user_id != current_user.id:
+    sql_edit = text("SELECT * FROM private_post WHERE id = :id")
+    result = db.session.execute(sql_edit, {'id': private_post_id})
+    post = result.fetchone()
+    if post.user_id != current_user.id and not current_user.is_admin:
         flash('You do not have permission to delete this post.', 'danger')
         return redirect(url_for('private_thread', private_thread_id=post.private_thread_id))
-    db.session.delete(post)
+    sql_delete_post = text("DELETE FROM private_post WHERE id = :id")
+    db.session.execute(sql_delete_post, {'id': private_post_id})
     db.session.commit()
     flash('Post has been deleted!', 'success')
+   
     return redirect(url_for('private_thread', private_thread_id=post.private_thread_id))

@@ -1,4 +1,5 @@
 from flask_wtf import FlaskForm
+from flask_wtf.file import FileField, FileAllowed
 from wtforms import StringField, PasswordField, SubmitField, TextAreaField, BooleanField 
 from wtforms.validators import DataRequired, Email, EqualTo, Length
 
@@ -32,3 +33,7 @@ class AreaForm(FlaskForm):
     description = TextAreaField('Description')
     is_secret = BooleanField('Secret')
     submit = SubmitField('Create Area')
+
+class GalleryForm(FlaskForm):
+    picture = FileField(label='new picture', validators = [FileAllowed(['jpg', 'png'])])
+    submit = SubmitField('Submit')

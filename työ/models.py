@@ -8,7 +8,7 @@ class User(db.Model, UserMixin):
     password = db.Column(db.String(60), nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
     authorized_areas = db.relationship('Area', secondary='area_user', backref='authorized_users')
-
+    
 class Area(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False)
@@ -47,7 +47,6 @@ class PrivateThread(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     posts = db.relationship('PrivatePost', backref='private_thread', lazy=True, cascade='all, delete-orphan')
 
-
 class PrivatePost(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     content = db.Column(db.Text, nullable=False)
@@ -57,6 +56,10 @@ class PrivatePost(db.Model):
     private_area_id = db.Column(db.Integer, db.ForeignKey('private_area.id'))
     user = db.relationship('User', backref=db.backref('private_posts', lazy=True))
 
+class Gallery(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    image_file = db.Column(db.String(20), nullable=False, default='default.jpg')
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
 class AreaUser(db.Model):
     __tablename__ = 'area_user'
