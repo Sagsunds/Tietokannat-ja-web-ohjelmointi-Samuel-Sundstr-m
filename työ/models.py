@@ -56,11 +56,6 @@ class PrivatePost(db.Model):
     private_area_id = db.Column(db.Integer, db.ForeignKey('private_area.id'))
     user = db.relationship('User', backref=db.backref('private_posts', lazy=True))
 
-class Gallery(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    image_file = db.Column(db.String(20), nullable=False, default='default.jpg')
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-
 class AreaUser(db.Model):
     __tablename__ = 'area_user'
     area_id = db.Column(db.Integer, db.ForeignKey('area.id'), primary_key=True)

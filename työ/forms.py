@@ -34,6 +34,3 @@ class AreaForm(FlaskForm):
     is_secret = BooleanField('Secret')
     submit = SubmitField('Create Area')
 
-class GalleryForm(FlaskForm):
-    picture = FileField(label='new picture', validators = [FileAllowed(['jpg', 'png'])])
-    submit = SubmitField('Submit')

@@ -1,10 +1,7 @@
 from datetime import datetime
-import os
-import secrets
-from PIL import Image
 from työ import app, db, bcrypt
 from flask import render_template, url_for, flash, redirect, request, session
-from työ.forms import RegistrationForm, LoginForm, ThreadForm, PostForm, PasswordForm, GalleryForm
+from työ.forms import RegistrationForm, LoginForm, ThreadForm, PostForm, PasswordForm
 from työ.models import User
 from flask_login import login_user, current_user, logout_user, login_required, LoginManager
 from sqlalchemy import text
@@ -55,8 +52,6 @@ def register():
     
     return render_template('register.html', title='Register', form=form)
 
-
-
 @app.route("/login", methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -89,15 +84,23 @@ def logout():
 @login_required
 def delete_account():
     user_id = current_user.id
-    sql_gallery = text("UPDATE gallery SET user_id = NULL WHERE user_id = :user_id")
-    db.session.execute(sql_gallery, {'user_id': user_id})
-    sql_threads = text("UPDATE thread SET user_id = NULL WHERE user_id = :user_id")
-    db.session.execute(sql_threads, {'user_id': user_id})
-    sql_user = text("DELETE FROM \"user\" WHERE id = :user_id")
-    db.session.execute(sql_user, {'user_id': user_id})
-    db.session.commit()
-    flash('Your account has been deleted.', 'success')
-    
+    if current_user.is_admin:
+        pass
+        flash("An error has occured",  "info")
+    else:
+        sql_delete_post = text("DELETE FROM post WHERE user_id = :user_id")
+        sql_delete_ppost = text("DELETE FROM private_post WHERE user_id = :user_id")
+        sql_delete_thread = text("DELETE FROM thread WHERE user_id = :user_id")
+        sql_delete_pthread = text("DELETE FROM private_thread WHERE user_id = :user_id")
+        sql_delete_user = text("DELETE FROM \"user\" WHERE id = :user_id")
+        db.session.execute(sql_delete_post, {'user_id': user_id})
+        db.session.execute(sql_delete_ppost, {'user_id': user_id})
+        db.session.execute(sql_delete_thread, {'user_id': user_id})
+        db.session.execute(sql_delete_pthread, {'user_id': user_id})
+        db.session.execute(sql_delete_user, {'user_id': user_id})
+        db.session.commit()
+
+        flash('Your account has been deleted.', 'success')
     return redirect(url_for('home'))
 
 
@@ -159,40 +162,6 @@ def thread(thread_id):
 @login_required
 def account():
     return render_template('account.html')
-
-def save_image(form_picture):
-    random_hex = secrets.token_hex(8)
-    _, f_ext = os.path.splitext(form_picture.filename)
-    picture_fn = random_hex + f_ext
-    picture_path = os.path.join(app.root_path, 'static/new_pics', picture_fn)
-
-    output_size = (125, 125)
-    i = Image.open(form_picture)
-    i.thumbnail(output_size)
-    i.save(picture_path)
-
-    return picture_fn
-
-
-@app.route("/gallery", methods=['GET', 'POST'])
-@login_required
-def gallery():
-    form = GalleryForm()
-    if form.validate_on_submit():
-        if form.picture.data:
-            image_file = save_image(form.picture.data)
-            sql = text("INSERT INTO gallery (image_file, user_id) VALUES (:image_file, :user_id)")
-            db.session.execute(sql, {'image_file': image_file, 'user_id': current_user.id})
-            db.session.commit()
-            return redirect(url_for('gallery'))
-        else:
-            flash('Please select a file', 'danger')
-    sql = text("SELECT image_file FROM gallery WHERE user_id = :user_id")
-    results = db.session.execute(sql, {'user_id': current_user.id})
-    image_urls = [url_for('static', filename='new_pics/' + result.image_file) for result in results]
-
-    return render_template('gallery.html', form=form, legend="Gallery pictures", image_urls=image_urls)
-
 
 @app.route("/thread/<int:thread_id>/edit", methods=['GET', 'POST'])
 def edit_thread(thread_id):
